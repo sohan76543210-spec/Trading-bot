@@ -16,12 +16,13 @@ def send_telegram(message):
     chat_id = os.environ.get("TELEGRAM_CHAT_ID")
 
     if not token or not chat_id:
+        print("Telegram secrets are missing.")
         print(message)
         return
 
     url = f"https://api.telegram.org/bot{token}/sendMessage"
 
-    requests.post(
+    response = requests.post(
         url,
         data={
             "chat_id": chat_id,
@@ -30,28 +31,36 @@ def send_telegram(message):
         timeout=20
     )
 
+    response.raise_for_status()
+
 
 def main():
 
     df = get_klines(
         symbol=SYMBOL,
         interval=INTERVAL,
-        limit=500
+        limit=300
     )
 
     result = generate_signal(df)
 
     print(result)
 
-    if result["signal"] == "NO TRADE":
+    signal = result["signal"]
+
+    if signal == "NO TRADE":
 
         message = (
-            f"BTC/USDT\n\n"
-            f"Signal: NO TRADE\n"
-            f"Market Score: {result['score']}/100\n"
+            "BTC/USDT\n\n"
+            "Signal: NO TRADE\n"
+            f"Score: {result['score']}/100\n"
             f"Long Score: {result['long_score']}\n"
             f"Short Score: {result['short_score']}\n"
-            f"Price: {result['price']}"
+            f"Price: {result['price']}\n\n"
+            "Reasons:\n"
+            + "\n".join(
+                f"- {x}" for x in result["reasons"]
+            )
         )
 
         send_telegram(message)
@@ -60,21 +69,21 @@ def main():
     trade = calculate_trade(
         result["price"],
         result["atr"],
-        result["signal"]
+        signal
     )
 
     message = (
-        f"🚨 BTC/USDT SIGNAL\n\n"
-        f"Direction: {result['signal']}\n"
+        "🚨 BTC/USDT SIGNAL\n\n"
+        f"Direction: {signal}\n"
         f"Score: {result['score']}/100\n\n"
         f"Entry: {trade['entry']}\n"
         f"Stop Loss: {trade['stop_loss']}\n"
         f"TP1: {trade['tp1']}\n"
         f"TP2: {trade['tp2']}\n\n"
-        f"Risk/Reward:\n"
-        f"TP1 = 1:{trade['risk_reward_tp1']}\n"
-        f"TP2 = 1:{trade['risk_reward_tp2']}\n\n"
-        f"Strategy: Liquidity + Market Structure + Momentum"
+        "Reasons:\n"
+        + "\n".join(
+            f"- {x}" for x in result["reasons"]
+        )
     )
 
     send_telegram(message)
