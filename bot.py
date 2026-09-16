@@ -5,37 +5,47 @@ from market_data import get_klines
 from strategy import generate_signal
 from risk_manager import calculate_trade
 
-
 SYMBOL = "BTCUSDT"
 INTERVAL = "15m"
 
 
 def send_telegram(message):
-
     token = os.environ.get("TELEGRAM_BOT_TOKEN")
     chat_id = os.environ.get("TELEGRAM_CHAT_ID")
 
     if not token or not chat_id:
         print("Telegram secrets are missing.")
         print(message)
-        return
+        return False
 
     url = f"https://api.telegram.org/bot{token}/sendMessage"
 
-    response = requests.post(
-        url,
-        data={
-            "chat_id": chat_id,
-            "text": message
-        },
-        timeout=20
-    )
+    try:
+        response = requests.post(
+            url,
+            data={
+                "chat_id": chat_id,
+                "text": message
+            },
+            timeout=20
+        )
 
-    response.raise_for_status()
+        if not response.ok:
+            print("Telegram API Error:")
+            print(response.status_code)
+            print(response.text)
+            return False
+
+        print("Telegram message sent successfully.")
+        return True
+
+    except requests.RequestException as e:
+        print("Telegram connection error:")
+        print(e)
+        return False
 
 
 def main():
-
     df = get_klines(
         symbol=SYMBOL,
         interval=INTERVAL,
@@ -49,7 +59,6 @@ def main():
     signal = result["signal"]
 
     if signal == "NO TRADE":
-
         message = (
             "BTC/USDT\n\n"
             "Signal: NO TRADE\n"
