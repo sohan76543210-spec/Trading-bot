@@ -1,32 +1,4 @@
-import os
-import requests
 
-from market_data import get_klines
-from strategy import generate_signal
-from risk_manager import calculate_trade
-
-SYMBOL = "BTCUSDT"
-INTERVAL = "15m"
-
-
-def send_telegram(message):
-    token = os.environ.get("TELEGRAM_BOT_TOKEN")
-    chat_id = os.environ.get("TELEGRAM_CHAT_ID")
-
-    if not token or not chat_id:
-        print("Telegram secrets are missing.")
-        print(message)
-        return False
-
-    url = f"https://api.telegram.org/bot{token}/sendMessage"
-
-    try:
-        response = requests.post(
-            url,
-            data={
-                "chat_id": chat_id,
-                "text": message
-            },
             timeout=20
         )
 
