@@ -28,7 +28,7 @@ def calculate_atr(df, period=14):
     return tr.rolling(period).mean()
 
 
-def liquidity_sweep(df, lookback=20):
+def detect_liquidity(df, lookback=20):
     previous_high = df["high"].shift(1).rolling(lookback).max()
     previous_low = df["low"].shift(1).rolling(lookback).min()
 
@@ -45,100 +45,175 @@ def liquidity_sweep(df, lookback=20):
     return bullish_sweep, bearish_sweep
 
 
-def market_structure(df):
+def detect_structure(df):
     previous_high = df["high"].shift(1)
     previous_low = df["low"].shift(1)
 
-    bullish = df["close"] > previous_high
-    bearish = df["close"] < previous_low
+    bullish_bos = df["close"] > previous_high
+    bearish_bos = df["close"] < previous_low
 
-    return bullish, bearish
+    return bullish_bos, bearish_bos
 
 
-def displacement(df):
-    candle_body = abs(df["close"] - df["open"])
-
-    average_body = candle_body.rolling(20).mean()
+def detect_displacement(df):
+    body = abs(df["close"] - df["open"])
+    average_body = body.rolling(20).mean()
 
     bullish = (
         (df["close"] > df["open"]) &
-        (candle_body > average_body * 1.5)
+        (body > average_body * 1.5)
     )
 
     bearish = (
         (df["close"] < df["open"]) &
-        (candle_body > average_body * 1.5)
+        (body > average_body * 1.5)
     )
 
     return bullish, bearish
+
+
+def detect_fvg(df):
+
+    bullish_fvg = (
+        df["low"] > df["high"].shift(2)
+    )
+
+    bearish_fvg = (
+        df["high"] < df["low"].shift(2)
+    )
+
+    return bullish_fvg, bearish_fvg
 
 
 def generate_signal(df):
 
     df = add_indicators(df)
 
-    bullish_sweep, bearish_sweep = liquidity_sweep(df)
-    bullish_structure, bearish_structure = market_structure(df)
-    bullish_disp, bearish_disp = displacement(df)
+    bullish_sweep, bearish_sweep = detect_liquidity(df)
+    bullish_bos, bearish_bos = detect_structure(df)
+    bullish_disp, bearish_disp = detect_displacement(df)
+    bullish_fvg, bearish_fvg = detect_fvg(df)
 
     last = df.iloc[-1]
 
     long_score = 0
     short_score = 0
 
-    # Liquidity
+    reasons_long = []
+    reasons_short = []
+
+    # -------------------------
+    # LIQUIDITY
+    # -------------------------
+
     if bullish_sweep.iloc[-1]:
         long_score += 25
+        reasons_long.append("Bullish liquidity sweep")
 
     if bearish_sweep.iloc[-1]:
         short_score += 25
+        reasons_short.append("Bearish liquidity sweep")
 
-    # Market structure
-    if bullish_structure.iloc[-1]:
+    # -------------------------
+    # MARKET STRUCTURE
+    # -------------------------
+
+    if bullish_bos.iloc[-1]:
         long_score += 20
+        reasons_long.append("Bullish structure break")
 
-    if bearish_structure.iloc[-1]:
+    if bearish_bos.iloc[-1]:
         short_score += 20
+        reasons_short.append("Bearish structure break")
 
-    # EMA trend
+    # -------------------------
+    # TREND
+    # -------------------------
+
     if last["ema20"] > last["ema50"]:
         long_score += 10
+        reasons_long.append("EMA bullish trend")
 
     if last["ema20"] < last["ema50"]:
         short_score += 10
+        reasons_short.append("EMA bearish trend")
 
-    # Higher timeframe-style trend filter
+    # -------------------------
+    # HTF STYLE FILTER
+    # -------------------------
+
     if last["close"] > last["ema200"]:
         long_score += 10
+        reasons_long.append("Above EMA200")
 
     if last["close"] < last["ema200"]:
         short_score += 10
+        reasons_short.append("Below EMA200")
 
-    # Displacement
+    # -------------------------
+    # DISPLACEMENT
+    # -------------------------
+
     if bullish_disp.iloc[-1]:
         long_score += 15
+        reasons_long.append("Bullish displacement")
 
     if bearish_disp.iloc[-1]:
         short_score += 15
+        reasons_short.append("Bearish displacement")
 
-    # Volume
+    # -------------------------
+    # FVG
+    # -------------------------
+
+    if bullish_fvg.iloc[-1]:
+        long_score += 10
+        reasons_long.append("Bullish FVG")
+
+    if bearish_fvg.iloc[-1]:
+        short_score += 10
+        reasons_short.append("Bearish FVG")
+
+    # -------------------------
+    # VOLUME
+    # -------------------------
+
     if last["volume"] > last["volume_ma"]:
+
         if long_score > short_score:
             long_score += 10
+            reasons_long.append("Volume confirmation")
+
         elif short_score > long_score:
             short_score += 10
+            reasons_short.append("Volume confirmation")
+
+    # -------------------------
+    # FINAL DECISION
+    # -------------------------
 
     if long_score >= 70 and long_score > short_score:
+
         signal = "LONG"
         score = long_score
+        reasons = reasons_long
 
     elif short_score >= 70 and short_score > long_score:
+
         signal = "SHORT"
         score = short_score
+        reasons = reasons_short
 
     else:
+
         signal = "NO TRADE"
         score = max(long_score, short_score)
+
+        reasons = (
+            reasons_long
+            if long_score >= short_score
+            else reasons_short
+        )
 
     return {
         "signal": signal,
@@ -146,5 +221,6 @@ def generate_signal(df):
         "long_score": int(long_score),
         "short_score": int(short_score),
         "price": float(last["close"]),
-        "atr": float(last["atr"])
+        "atr": float(last["atr"]),
+        "reasons": reasons
     }
